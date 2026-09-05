@@ -108,7 +108,7 @@ services:
     build:
       context: ./backup
       dockerfile: Dockerfile
-    image: instant-self-host-backup:local
+    pull_policy: build
     restart: unless-stopped
     depends_on:
       postgres:
@@ -166,7 +166,7 @@ services:
     build:
       context: ./backup
       dockerfile: Dockerfile
-    image: instant-self-host-backup:local
+    pull_policy: build
     profiles: ["backup-init"]
     restart: "no"
     environment:
@@ -179,7 +179,7 @@ services:
     build:
       context: ./backup
       dockerfile: Dockerfile
-    image: instant-self-host-backup:local
+    pull_policy: build
     profiles: ["restore"]
     restart: "no"
     depends_on:

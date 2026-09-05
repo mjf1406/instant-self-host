@@ -58,6 +58,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     image: instant-self-host-backup:test
+    pull_policy: build
     depends_on:
       postgres:
         condition: service_healthy

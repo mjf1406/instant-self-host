@@ -104,7 +104,7 @@ https://api.example.com/dash/oauth/callback
    - `R2_ACCESS_KEY_ID`
    - `R2_SECRET_ACCESS_KEY`
    - `RESTIC_PASSWORD`
-7. Deploy the stack. Portainer must build the `backup` image from `backup/Dockerfile`. If the service is missing after deploy, use **Pull and redeploy** with rebuild enabled.
+7. Deploy the stack. Leave **Re-pull image** off. The `backup` image is not on Docker Hub. Portainer builds it from `backup/Dockerfile` in this repo. If deploy fails with `pull access denied for instant-self-host-backup`, update the stack to this compose file and deploy again without re-pull.
 8. Initialize the backup repository and run the restore drill. The backup service stays unhealthy until you do this. Follow [Backup and restore](docs/backup-and-restore.md).
 
 ## 5. Verify
@@ -175,7 +175,7 @@ That writes `instant.config.ts` with `apiURI` and `dashURI`.
 
 ## 8. Update
 
-In Portainer, open the stack and use **Pull and redeploy**. Instant publishes new `server` and `dashboard` images on `latest`.
+In Portainer, open the stack and use **Pull and redeploy**. Instant publishes new `server` and `dashboard` images on `latest`. The `backup` service still builds from source. Do not treat a `pull access denied` error for that image as a registry login problem.
 
 ## 9. Backups
 

@@ -89,7 +89,7 @@ Reserve about as much space as the current MinIO uploads plus one PostgreSQL dum
 
 Copy the backup block from [`.env.example`](../.env.example). Replace the `replace-with-...` values. Leave `RESTIC_INIT_CONFIRM` empty in the running stack.
 
-Redeploy the stack so Portainer builds the `backup` image from `backup/Dockerfile`. Enable rebuild if the image is missing. The backup container stays unhealthy until the repository exists and the first snapshot succeeds.
+Redeploy the stack so Portainer builds the `backup` image from `backup/Dockerfile`. Leave **Re-pull image** off. That image is not on Docker Hub, so a pull fails with `pull access denied`. The backup container stays unhealthy until the repository exists and the first snapshot succeeds.
 
 ## 7. Initialize the repository
 
