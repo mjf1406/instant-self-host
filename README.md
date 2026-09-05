@@ -337,6 +337,10 @@ An empty upload bucket can report `restored=0 destination=0`. That still matches
 
 Do **not** run `restore.sh live` except during a real disaster recovery. That command replaces production data and needs `RESTORE_CONFIRM=I_UNDERSTAND_THIS_REPLACES_LIVE_DATA`. See [Backup and restore](docs/backup-and-restore.md).
 
+## 10. Migrate from Instant Cloud (optional)
+
+If you already have an app on Instant Cloud, follow Instant's [Migrate from Instant Cloud](https://www.instantdb.com/docs/self-hosting/migrate) guide.
+
 ## Notes
 
 - **Memory.** The backend JVM is capped at 2 GB (`JAVA_OPTS=-Xmx2g -Xms2g`). Raise this if the host has spare RAM and Instant is the main workload.
