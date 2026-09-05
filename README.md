@@ -105,7 +105,7 @@ https://api.example.com/dash/oauth/callback
    - `R2_SECRET_ACCESS_KEY`
    - `RESTIC_PASSWORD`
 7. Deploy the stack. Leave **Re-pull image** off. The `backup` image is not on Docker Hub. Portainer builds it from `backup/Dockerfile` in this repo. If deploy fails with `pull access denied for instant-self-host-backup`, update the stack to this compose file and deploy again without re-pull.
-8. Initialize the backup repository and run the restore drill. The backup service stays unhealthy until you do this. Follow [Backup and restore](docs/backup-and-restore.md).
+8. Finish first-time backups in [section 9](#9-backups). The `backup` service stays unhealthy until you initialize the repository and take the first snapshot.
 
 ## 5. Verify
 
@@ -160,7 +160,7 @@ To use the Instant CLI against this instance:
 ```sh
 INSTANT_CLI_API_URI=https://api.example.com \
 INSTANT_CLI_DASH_URI=https://dash.example.com \
-npx instant-cli@latest login
+bunx instant-cli@latest login
 ```
 
 After login, use the same URLs with `create-instant-app`:
@@ -168,7 +168,7 @@ After login, use the same URLs with `create-instant-app`:
 ```sh
 INSTANT_CLI_API_URI=https://api.example.com \
 INSTANT_CLI_DASH_URI=https://dash.example.com \
-npx create-instant-app@latest
+bunx create-instant-app@latest
 ```
 
 That writes `instant.config.ts` with `apiURI` and `dashURI`.
@@ -179,26 +179,169 @@ In Portainer, open the stack and use **Pull and redeploy**. Instant publishes ne
 
 ## 9. Backups
 
-Encrypted snapshots go to a dedicated Cloudflare R2 bucket every 6 hours UTC. The interval is `BACKUP_CRON` if you want a different schedule.
+Encrypted snapshots go to a dedicated Cloudflare R2 bucket every 6 hours UTC. Change `BACKUP_CRON` if you want a different interval.
 
-The backup copies PostgreSQL, MinIO uploads, and Instant server config. The live database and MinIO volumes are not mounted into the backup container.
+Each snapshot includes a PostgreSQL dump, the current MinIO uploads, and Instant server config. The backup container does not mount the live database or MinIO volumes.
 
-Do this after the first deploy:
+Do this after the first deploy. Use placeholders here. Keep real keys and `RESTIC_PASSWORD` in a password manager.
 
-1. Create the dedicated R2 bucket and scoped token.
-2. Add the 7-day bucket locks on restic's durable prefixes.
-3. Set `RESTIC_PASSWORD` and the R2 keys in Portainer.
-4. Initialize the repository with an explicit confirm.
-5. Wait until the `backup` service is healthy.
-6. Run the isolated restore drill. Do not skip this.
+Live disaster recovery, credential rotation, and extra Compose-checkout commands are in [Backup and restore](docs/backup-and-restore.md).
 
-The full setup, lock prefixes, drill command, credential rotation, and live recovery steps are in [Backup and restore](docs/backup-and-restore.md).
+### 9.1 Create the R2 bucket and token
+
+1. Open [R2](https://dash.cloudflare.com/) in the Cloudflare dashboard.
+2. Create a dedicated bucket named `instant-self-host-backups`, or another name you will put in `R2_BUCKET`. Do not reuse the public files hostname or the live MinIO bucket.
+3. Copy the **Account ID** from the R2 overview page. That is `R2_ACCOUNT_ID`.
+4. Open **Manage API tokens**.
+5. Create an **Account API token**. Prefer an account token, not a user token.
+6. Permission: **Object Read & Write**. Do not choose Admin.
+7. Apply it to this backup bucket only.
+8. Copy the Access Key ID and Secret Access Key into a password manager. The secret is shown once.
+
+Leave object lifecycle deletion off. restic removes old snapshots itself.
+
+### 9.2 Store `RESTIC_PASSWORD`
+
+Generate a long random password, at least 32 characters. Store it in a password manager that is not only on this server.
+
+This password encrypts the backups. If you lose it, the copies on R2 cannot be opened. There is no reset. Do not reuse the MinIO or Postgres password.
+
+### 9.3 Add the 7-day bucket locks
+
+In the backup bucket **Settings** → **Bucket lock**, add five **Age** rules of **7 days**:
+
+| Prefix | Lock |
+| --- | --- |
+| `data/` | 7 days |
+| `index/` | 7 days |
+| `snapshots/` | 7 days |
+| `keys/` | 7 days |
+| `config` | 7 days |
+
+`data/`, `index/`, `snapshots/`, and `keys/` need the trailing slash. `config` does not. Leave `locks/` unlocked so restic can coordinate jobs. Do not lock the whole bucket with an empty prefix.
+
+Keep `RESTIC_KEEP_WITHIN` at `7d` or longer. A shorter keep period will try to delete objects the lock still protects.
+
+### 9.4 Put the variables in Portainer and redeploy
+
+Copy the backup block from [`.env.example`](.env.example). Replace the `replace-with-...` values.
+
+Fill these:
+
+| Variable | Value |
+| --- | --- |
+| `R2_ACCOUNT_ID` | Cloudflare account ID |
+| `R2_ACCESS_KEY_ID` | Token access key |
+| `R2_SECRET_ACCESS_KEY` | Token secret |
+| `RESTIC_PASSWORD` | The restic password from 9.2 |
+| `R2_BUCKET` | `instant-self-host-backups` unless you chose another name |
+| `R2_REGION` | `auto` |
+
+Leave these empty in the persistent Portainer environment:
+
+- `R2_ENDPOINT` — use this only for the account-level endpoint `https://<account-id>.r2.cloudflarestorage.com`. Never put the bucket name in this URL.
+- `RESTIC_REPOSITORY`
+- `RESTIC_REPOSITORY_PREFIX` — do not set this to the bucket name. That creates an extra path segment.
+- `BACKUP_STAGING_SOURCE`
+- `RESTIC_INIT_CONFIRM`
+- `RESTORE_TARGET_DB`, `RESTORE_TARGET_BUCKET`, `RESTORE_CONFIRM`
+
+Redeploy so Portainer builds `backup/Dockerfile`. Leave **Re-pull image** off. The backup image is not on Docker Hub.
+
+After deploy, Instant should still return `{"wal":"ok"}`. The `backup` container exists, but it stays unhealthy until you initialize the repository and take a snapshot.
+
+### 9.5 Find the backup container
+
+SSH to the Ubuntu host. Portainer often stores compose files inside its own container, so `/data/compose` may not exist on the host. You do not need that folder.
+
+```sh
+sudo docker ps -a --filter name=backup
+```
+
+Use the **NAMES** column. Portainer may call it `instantdb-backup-1` or similar. The short filter `backup` is not always the container name. Use `sudo` if your user cannot talk to Docker.
+
+### 9.6 Check the repository URL, then initialize
+
+```sh
+sudo docker logs --tail 50 CONTAINER_NAME
+```
+
+The log should show a restic URL like:
+
+```text
+s3:https://<account-id>.r2.cloudflarestorage.com/instant-self-host-backups
+```
+
+Confirm the account ID and bucket name. If the URL is wrong, fix Portainer variables and redeploy. Do not initialize yet.
+
+A URL that repeats the bucket name means `RESTIC_REPOSITORY_PREFIX` or `R2_ENDPOINT` includes the bucket. Fix that before the first init. After a repository exists, that path is fixed. Do not change it later unless you plan a migration.
+
+Initialize with an explicit confirm:
+
+```sh
+sudo docker exec -e RESTIC_INIT_CONFIRM=yes CONTAINER_NAME /usr/local/bin/init-repo.sh
+```
+
+Success looks like `repository initialized`. If it says the repository already exists, do not init again.
+
+| Message | What it means |
+| --- | --- |
+| `refusing to initialize` | `RESTIC_INIT_CONFIRM` was not `yes` |
+| Access denied / 403 | Token is wrong, or it is not allowed on this bucket |
+| No such host / 404 | Account ID or bucket name is wrong |
+| Missing environment variable | A required Portainer variable is empty |
+
+### 9.7 Run the first backup
+
+Init through `docker exec` does not start a snapshot. The already-running scheduler skipped startup because the repository was missing. The next cron run is `0 */6 * * *` UTC (`00:00`, `06:00`, `12:00`, `18:00`).
+
+Run the first snapshot now:
+
+```sh
+sudo docker exec CONTAINER_NAME /usr/local/bin/backup.sh
+```
+
+Or restart the container so the entrypoint sees the repository and backs up on startup:
+
+```sh
+sudo docker restart CONTAINER_NAME
+sudo docker logs -f CONTAINER_NAME
+```
+
+Wait for `backup completed`, then `no errors were found` from the metadata check. The first successful run also applies retention and a 5% data-sample check.
+
+```sh
+sudo docker ps --filter name=CONTAINER_NAME
+```
+
+You want `(healthy)`. An empty MinIO upload bucket is fine. The snapshot should still include the Postgres dump and server config.
+
+### 9.8 Run the restore drill
+
+Do this before you treat backups as complete. The drill restores into temporary names. It does not replace live Instant data.
+
+```sh
+sudo docker exec -e RESTORE_CLEANUP=yes CONTAINER_NAME /usr/local/bin/restore.sh drill
+```
+
+The helper should:
+
+1. Restore the latest snapshot into isolated staging
+2. Create a temporary PostgreSQL database and open it
+3. Create a temporary MinIO bucket and match object counts
+4. Extract server config, including `override.edn` if present
+5. Print `DRILL OK`
+6. Remove those temporary targets when `RESTORE_CLEANUP=yes`
+
+An empty upload bucket can report `restored=0 destination=0`. That still matches.
+
+Do **not** run `restore.sh live` except during a real disaster recovery. That command replaces production data and needs `RESTORE_CONFIRM=I_UNDERSTAND_THIS_REPLACES_LIVE_DATA`. See [Backup and restore](docs/backup-and-restore.md).
 
 ## Notes
 
 - **Memory.** The backend JVM is capped at 2 GB (`JAVA_OPTS=-Xmx2g -Xms2g`). Raise this if the host has spare RAM and Instant is the main workload.
 - **Email.** No email provider is configured. Dashboard login uses Google. If an app sends a magic code, Instant writes it to the `server` container logs.
 - **Uploads.** Cloudflare Free caps each request at about 100 MB. That limit applies to `files.example.com`.
-- **Backups.** Do not treat the Docker volumes as the only copy. Use the R2 backup flow in [Backup and restore](docs/backup-and-restore.md).
+- **Backups.** Do not treat the Docker volumes as the only copy. Follow [section 9](#9-backups) for first-time setup. Live recovery is in [Backup and restore](docs/backup-and-restore.md).
 - **Other sites.** Other subdomains on your domain can share this Instant instance. Give each site its own app in the dashboard. They can also share one Cloudflare tunnel for their front ends. Instant still needs this stack’s tunnel (or a connector on the same Docker network).
 - **Other services on the server.** This tunnel only publishes the hostnames you add. SSH, Portainer, and LAN-only apps stay private. Do not add their hostnames here, and do not add a private CIDR route.
