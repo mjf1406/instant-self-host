@@ -17,6 +17,7 @@ Sign in to the dashboard with Google. Set `INSTANT_SUPERUSER_EMAIL` to the Googl
 - Ubuntu server with Docker and Portainer already running
 - A domain on Cloudflare
 - A Google Cloud project where you can create an OAuth client
+- A dedicated Cloudflare R2 bucket for backups. See [Backup and restore](docs/backup-and-restore.md).
 
 ## 2. Create the Cloudflare Tunnel
 
@@ -99,7 +100,12 @@ https://api.example.com/dash/oauth/callback
    - `INSTANT_SUPERUSER_EMAIL`
    - `INSTANT_DASHBOARD_GOOGLE_OAUTH_CLIENT_ID`
    - `INSTANT_DASHBOARD_GOOGLE_OAUTH_CLIENT_SECRET`
-7. Deploy the stack.
+   - `R2_ACCOUNT_ID`
+   - `R2_ACCESS_KEY_ID`
+   - `R2_SECRET_ACCESS_KEY`
+   - `RESTIC_PASSWORD`
+7. Deploy the stack. Portainer must build the `backup` image from `backup/Dockerfile`. If the service is missing after deploy, use **Pull and redeploy** with rebuild enabled.
+8. Initialize the backup repository and run the restore drill. The backup service stays unhealthy until you do this. Follow [Backup and restore](docs/backup-and-restore.md).
 
 ## 5. Verify
 
@@ -171,11 +177,28 @@ That writes `instant.config.ts` with `apiURI` and `dashURI`.
 
 In Portainer, open the stack and use **Pull and redeploy**. Instant publishes new `server` and `dashboard` images on `latest`.
 
+## 9. Backups
+
+Encrypted snapshots go to a dedicated Cloudflare R2 bucket every 6 hours UTC. The interval is `BACKUP_CRON` if you want a different schedule.
+
+The backup copies PostgreSQL, MinIO uploads, and Instant server config. The live database and MinIO volumes are not mounted into the backup container.
+
+Do this after the first deploy:
+
+1. Create the dedicated R2 bucket and scoped token.
+2. Add the 7-day bucket locks on restic's durable prefixes.
+3. Set `RESTIC_PASSWORD` and the R2 keys in Portainer.
+4. Initialize the repository with an explicit confirm.
+5. Wait until the `backup` service is healthy.
+6. Run the isolated restore drill. Do not skip this.
+
+The full setup, lock prefixes, drill command, credential rotation, and live recovery steps are in [Backup and restore](docs/backup-and-restore.md).
+
 ## Notes
 
 - **Memory.** The backend JVM is capped at 2 GB (`JAVA_OPTS=-Xmx2g -Xms2g`). Raise this if the host has spare RAM and Instant is the main workload.
 - **Email.** No email provider is configured. Dashboard login uses Google. If an app sends a magic code, Instant writes it to the `server` container logs.
 - **Uploads.** Cloudflare Free caps each request at about 100 MB. That limit applies to `files.example.com`.
-- **Backups.** The data lives in the `backend-db` Docker volume. Back that volume up. File uploads live in `minio_data`.
+- **Backups.** Do not treat the Docker volumes as the only copy. Use the R2 backup flow in [Backup and restore](docs/backup-and-restore.md).
 - **Other sites.** Other subdomains on your domain can share this Instant instance. Give each site its own app in the dashboard. They can also share one Cloudflare tunnel for their front ends. Instant still needs this stack’s tunnel (or a connector on the same Docker network).
 - **Other services on the server.** This tunnel only publishes the hostnames you add. SSH, Portainer, and LAN-only apps stay private. Do not add their hostnames here, and do not add a private CIDR route.

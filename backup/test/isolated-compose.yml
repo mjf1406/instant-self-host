@@ -1,0 +1,132 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: instant
+      POSTGRES_PASSWORD: instant-test
+      POSTGRES_DB: instant
+    volumes:
+      - ./fixtures/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U instant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001" --address ":9000"
+    environment:
+      MINIO_ROOT_USER: minio-test
+      MINIO_ROOT_PASSWORD: minio-test-password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  r2:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001" --address ":9000"
+    environment:
+      MINIO_ROOT_USER: r2-test
+      MINIO_ROOT_PASSWORD: r2-test-password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+      r2:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 minio-test minio-test-password;
+      /usr/bin/mc mb --ignore-existing local/instant-bucket;
+      /usr/bin/mc alias set r2 http://r2:9000 r2-test r2-test-password;
+      /usr/bin/mc mb --ignore-existing r2/instant-self-host-backups;
+      printf 'probe' | /usr/bin/mc pipe local/instant-bucket/probe.txt;
+      exit"
+
+  backup:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: instant-self-host-backup:test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    environment: &backup-environment
+      TZ: UTC
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: instant
+      POSTGRES_PASSWORD: instant-test
+      POSTGRES_DB: instant
+      MINIO_ROOT_USER: minio-test
+      MINIO_ROOT_PASSWORD: minio-test-password
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: instant-bucket
+      R2_BUCKET: instant-self-host-backups
+      R2_ENDPOINT: http://r2:9000
+      R2_ACCESS_KEY_ID: r2-test
+      R2_SECRET_ACCESS_KEY: r2-test-password
+      R2_REGION: us-east-1
+      RESTIC_PASSWORD: restic-test-password
+      BACKUP_CRON: "0 */6 * * *"
+      BACKUP_FRESHNESS_SECONDS: "28800"
+      BACKUP_MAX_RUNTIME_SECONDS: "7200"
+      BACKUP_MIN_FREE_MB: "64"
+      RESTIC_KEEP_WITHIN: 7d
+      RESTIC_KEEP_WEEKLY: "5"
+      RESTIC_KEEP_MONTHLY: "12"
+      RESTIC_CHECK_READ_DATA_SUBSET: 5%
+      MAINTENANCE_WEEKDAY: "0"
+    volumes:
+      - backup_staging:/staging
+      - ./fixtures/server-config:/app/resources/config:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 2m
+
+  backup-init:
+    image: instant-self-host-backup:test
+    profiles: ["backup-init"]
+    depends_on:
+      createbuckets:
+        condition: service_completed_successfully
+    environment:
+      <<: *backup-environment
+      RESTIC_INIT_CONFIRM: "yes"
+    volumes:
+      - backup_staging:/staging
+    entrypoint: ["/usr/local/bin/init-repo.sh"]
+
+  restore:
+    image: instant-self-host-backup:test
+    profiles: ["restore"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    environment:
+      <<: *backup-environment
+      RESTORE_SNAPSHOT: latest
+      RESTORE_CLEANUP: "yes"
+    volumes:
+      - backup_staging:/staging
+      - ./fixtures/server-config:/app/resources/config:ro
+    entrypoint: ["/usr/local/bin/restore.sh"]
+
+volumes:
+  backup_staging:

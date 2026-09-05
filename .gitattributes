@@ -1,0 +1,4 @@
+backup/*.sh text eol=lf
+backup/test/*.sh text eol=lf
+backup/Dockerfile text eol=lf
+backup/.dockerignore text eol=lf

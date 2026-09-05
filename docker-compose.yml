@@ -104,7 +104,99 @@ services:
       - server
       - minio
 
+  backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    image: instant-self-host-backup:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    environment: &backup-environment
+      TZ: UTC
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-instant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-instant}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-instant-bucket}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET: ${R2_BUCKET:-instant-self-host-backups}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_REGION: ${R2_REGION:-auto}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_REPOSITORY_PREFIX: ${RESTIC_REPOSITORY_PREFIX:-}
+      BACKUP_CRON: ${BACKUP_CRON:-0 */6 * * *}
+      BACKUP_FRESHNESS_SECONDS: ${BACKUP_FRESHNESS_SECONDS:-28800}
+      BACKUP_MAX_RUNTIME_SECONDS: ${BACKUP_MAX_RUNTIME_SECONDS:-7200}
+      BACKUP_MIN_FREE_MB: ${BACKUP_MIN_FREE_MB:-1024}
+      RESTIC_KEEP_WITHIN: ${RESTIC_KEEP_WITHIN:-7d}
+      RESTIC_KEEP_WEEKLY: ${RESTIC_KEEP_WEEKLY:-5}
+      RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-12}
+      RESTIC_CHECK_READ_DATA_SUBSET: ${RESTIC_CHECK_READ_DATA_SUBSET:-5%}
+      MAINTENANCE_WEEKDAY: ${MAINTENANCE_WEEKDAY:-0}
+      RESTIC_INIT_CONFIRM: ${RESTIC_INIT_CONFIRM:-}
+      RESTORE_SNAPSHOT: ${RESTORE_SNAPSHOT:-latest}
+      RESTORE_TARGET_DB: ${RESTORE_TARGET_DB:-}
+      RESTORE_TARGET_BUCKET: ${RESTORE_TARGET_BUCKET:-}
+      RESTORE_CONFIG_DIR: ${RESTORE_CONFIG_DIR:-}
+      RESTORE_CLEANUP: ${RESTORE_CLEANUP:-}
+      RESTORE_CONFIRM: ${RESTORE_CONFIRM:-}
+    volumes:
+      - ${BACKUP_STAGING_SOURCE:-backup_staging}:/staging
+      - server_config:/app/resources/config:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 15m
+
+  backup-init:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    image: instant-self-host-backup:local
+    profiles: ["backup-init"]
+    restart: "no"
+    environment:
+      <<: *backup-environment
+    volumes:
+      - ${BACKUP_STAGING_SOURCE:-backup_staging}:/staging
+    entrypoint: ["/usr/local/bin/init-repo.sh"]
+
+  restore:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    image: instant-self-host-backup:local
+    profiles: ["restore"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *backup-environment
+    volumes:
+      - ${BACKUP_STAGING_SOURCE:-backup_staging}:/staging
+      - server_config:/app/resources/config
+    entrypoint: ["/usr/local/bin/restore.sh"]
+    command: ["--help"]
+
 volumes:
   backend-db:
   minio_data:
   server_config:
+  backup_staging:
