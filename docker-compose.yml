@@ -1,0 +1,110 @@
+services:
+  postgres:
+    image: ghcr.io/instantdb/postgresql:postgresql-17-pg-hint-plan
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER:-instant}
+      POSTGRES_DB: ${POSTGRES_DB:-instant}
+    volumes:
+      - backend-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-instant}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+      - -c
+      - shared_preload_libraries=pg_hint_plan
+      - -c
+      - random_page_cost=1.1
+
+  www:
+    image: ghcr.io/instantdb/dashboard:latest
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      INSTANT_BACKEND_URL: ${INSTANT_BACKEND_URL}
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER: "on"
+      MINIO_SKIP_CLIENT_CERT_VALIDATION: "on"
+    command: server /data --console-address ":9001" --address ":9000"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  createbuckets:
+    image: minio/mc
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-instant-bucket}
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      /usr/bin/mc mb --ignore-existing local/$$S3_BUCKET;
+      exit"
+
+  server:
+    image: ghcr.io/instantdb/server:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx2g -Xms2g}
+      WAL_HISTORY_STORAGE: pg
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-instant}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-instant}?sslmode=disable"
+      CONNECTION_POOL_SIZE: ${CONNECTION_POOL_SIZE:-20}
+      INSTANT_BACKEND_URL: ${INSTANT_BACKEND_URL}
+      INSTANT_DASHBOARD_URL: ${INSTANT_DASHBOARD_URL}
+      INSTANT_SUPERUSER_EMAIL: ${INSTANT_SUPERUSER_EMAIL}
+      INSTANT_DASHBOARD_GOOGLE_OAUTH_CLIENT_ID: ${INSTANT_DASHBOARD_GOOGLE_OAUTH_CLIENT_ID}
+      INSTANT_DASHBOARD_GOOGLE_OAUTH_CLIENT_SECRET: ${INSTANT_DASHBOARD_GOOGLE_OAUTH_CLIENT_SECRET}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
+      S3_BUCKET: ${S3_BUCKET:-instant-bucket}
+    volumes:
+      - server_config:/app/resources/config
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - www
+      - server
+      - minio
+
+volumes:
+  backend-db:
+  minio_data:
+  server_config:
