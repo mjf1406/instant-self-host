@@ -349,5 +349,3 @@ If you already have an app on Instant Cloud, follow Instant's [Migrate from Inst
 - **Backups.** Do not treat the Docker volumes as the only copy. Follow [section 9](#9-backups) for first-time setup. Live recovery is in [Backup and restore](docs/backup-and-restore.md).
 - **Other sites.** Other subdomains on your domain can share this Instant instance. Give each site its own app in the dashboard. They can also share one Cloudflare tunnel for their front ends. Instant still needs this stack’s tunnel (or a connector on the same Docker network).
 - **Other services on the server.** This tunnel only publishes the hostnames you add. SSH, Portainer, and LAN-only apps stay private. Do not add their hostnames here, and do not add a private CIDR route.
-
-test
