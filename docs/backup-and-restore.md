@@ -4,6 +4,7 @@ This stack copies InstantDB data to a dedicated Cloudflare R2 bucket. Each snaps
 
 - a PostgreSQL custom-format dump
 - the current MinIO upload bucket
+- the dashboard app-backups bucket (`S3_APP_BACKUPS_BUCKET`)
 - the Instant server config volume
 
 restic encrypts the snapshot before it leaves the server. If you lose `RESTIC_PASSWORD`, the copies on R2 cannot be opened.
@@ -112,6 +113,8 @@ Leave these empty in the persistent Portainer environment:
 - `RESTIC_REPOSITORY_PREFIX` unless you intentionally want an extra path inside the bucket. Do not set this to the bucket name.
 - `RESTIC_INIT_CONFIRM`
 - `RESTORE_TARGET_DB`, `RESTORE_TARGET_BUCKET`, and `RESTORE_CONFIRM`
+- `INSTANT_PLATFORM_TOKEN` until you create a personal access token for scheduled dashboard backups
+- `APP_BACKUP_APP_IDS` unless you want to limit scheduled dashboard backups to specific apps
 
 Redeploy the stack so Portainer builds the `backup` image from `backup/Dockerfile`. Leave **Re-pull image** off. That image is not on Docker Hub, so a pull fails with `pull access denied`. Instant should still return `{"wal":"ok"}`. The backup container stays unhealthy until the repository exists and the first snapshot succeeds.
 
@@ -179,7 +182,7 @@ docker compose exec backup /usr/local/bin/backup.sh
 A successful first run should show:
 
 1. `staging space ok`
-2. MinIO mirror (0 B is fine when the upload bucket is empty)
+2. MinIO mirror of the upload bucket and the app-backups bucket (0 B is fine when either is empty)
 3. `wrote /staging/data/postgres/instant.dump`
 4. `wrote /staging/data/server-config/config.tar.gz`
 5. `snapshot` saved
@@ -208,6 +211,28 @@ Compose checkout:
 ```sh
 docker compose --profile restore run --rm restore list
 ```
+
+## 8a. Dashboard app backups
+
+The dashboard Backups page stores per-app snapshots in MinIO bucket `S3_APP_BACKUPS_BUCKET` (default `instant-app-backups`). Instant's built-in nightly scheduler is AWS-only. This stack uses `app-backup.sh` instead.
+
+Set `INSTANT_PLATFORM_TOKEN` to a personal access token from the dashboard account menu, or to the refresh token from `instant-cli login` pointed at this instance. The token must belong to a user who can write every app you want scheduled. The superuser is enough.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APP_BACKUP_CRON` | `0 2 * * *` | UTC schedule. One dashboard backup per app, then an immediate restic upload. |
+| `APP_BACKUP_APP_IDS` | empty | Comma-separated app IDs. Empty means every non-deleted app. |
+| `INSTANT_SERVER_URL` | `http://server:8888` | Backend URL inside the Docker network. |
+
+A 429 rate-limit response skips that app and continues. Dashboard copies expire after 7 days. The restic copies on R2 follow your existing 7d / 5 weekly / 12 monthly retention.
+
+Run the same flow now:
+
+```sh
+sudo docker exec CONTAINER_NAME /usr/local/bin/app-backup.sh
+```
+
+`restore.sh live` puts Postgres, the upload bucket, and server config back. It does not replace the dashboard backups bucket. After you extract a restic snapshot, mirror `minio-app-backups` from that snapshot into `S3_APP_BACKUPS_BUCKET` with `mc`. The dashboard lists any copies that have not passed `expires_at`.
 
 ## 9. Required restore drill
 

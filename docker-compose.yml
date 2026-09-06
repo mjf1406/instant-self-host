@@ -57,6 +57,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET: ${S3_BUCKET:-instant-bucket}
+      S3_APP_BACKUPS_BUCKET: ${S3_APP_BACKUPS_BUCKET:-instant-app-backups}
     depends_on:
       minio:
         condition: service_healthy
@@ -64,6 +65,7 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
       /usr/bin/mc mb --ignore-existing local/$$S3_BUCKET;
+      /usr/bin/mc mb --ignore-existing local/$$S3_APP_BACKUPS_BUCKET;
       exit"
 
   server:
@@ -90,6 +92,7 @@ services:
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
       S3_BUCKET: ${S3_BUCKET:-instant-bucket}
+      S3_APP_BACKUPS_BUCKET: ${S3_APP_BACKUPS_BUCKET:-instant-app-backups}
     volumes:
       - server_config:/app/resources/config
 
@@ -117,6 +120,8 @@ services:
         condition: service_healthy
       createbuckets:
         condition: service_completed_successfully
+      server:
+        condition: service_started
     environment: &backup-environment
       TZ: UTC
       POSTGRES_HOST: postgres
@@ -127,6 +132,13 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
       S3_BUCKET: ${S3_BUCKET:-instant-bucket}
+      S3_APP_BACKUPS_BUCKET: ${S3_APP_BACKUPS_BUCKET:-instant-app-backups}
+      INSTANT_SERVER_URL: ${INSTANT_SERVER_URL:-http://server:8888}
+      INSTANT_PLATFORM_TOKEN: ${INSTANT_PLATFORM_TOKEN:-}
+      APP_BACKUP_CRON: ${APP_BACKUP_CRON:-0 2 * * *}
+      APP_BACKUP_APP_IDS: ${APP_BACKUP_APP_IDS:-}
+      APP_BACKUP_JOB_TIMEOUT_SECONDS: ${APP_BACKUP_JOB_TIMEOUT_SECONDS:-1800}
+      APP_BACKUP_POLL_SECONDS: ${APP_BACKUP_POLL_SECONDS:-5}
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
       R2_BUCKET: ${R2_BUCKET:-instant-self-host-backups}
       R2_ENDPOINT: ${R2_ENDPOINT:-}

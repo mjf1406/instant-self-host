@@ -48,6 +48,7 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set local http://minio:9000 minio-test minio-test-password;
       /usr/bin/mc mb --ignore-existing local/instant-bucket;
+      /usr/bin/mc mb --ignore-existing local/instant-app-backups;
       /usr/bin/mc alias set r2 http://r2:9000 r2-test r2-test-password;
       /usr/bin/mc mb --ignore-existing r2/instant-self-host-backups;
       printf 'probe' | /usr/bin/mc pipe local/instant-bucket/probe.txt;
@@ -74,6 +75,7 @@ services:
       MINIO_ROOT_PASSWORD: minio-test-password
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: instant-bucket
+      S3_APP_BACKUPS_BUCKET: instant-app-backups
       R2_BUCKET: instant-self-host-backups
       R2_ENDPOINT: http://r2:9000
       R2_ACCESS_KEY_ID: r2-test

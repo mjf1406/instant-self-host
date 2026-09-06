@@ -104,7 +104,7 @@ https://api.example.com/dash/oauth/callback
    - `R2_ACCESS_KEY_ID`
    - `R2_SECRET_ACCESS_KEY`
    - `RESTIC_PASSWORD`
-7. Deploy the stack. Leave **Re-pull image** off. The `backup` image is not on Docker Hub. Portainer builds it from `backup/Dockerfile` in this repo. If deploy fails with `pull access denied for instant-self-host-backup`, update the stack to this compose file and deploy again without re-pull.
+7. Deploy the stack. Leave **Re-pull image** off. The `backup` image is not on Docker Hub. Portainer builds it from `backup/Dockerfile` in this repo. If deploy fails with `pull access denied for instant-self-host-backup`, update the stack to this compose file and deploy again without re-pull. Re-pull the Instant `server` and `dashboard` images so the Backups page can write to MinIO.
 8. Finish first-time backups in [section 9](#9-backups). The `backup` service stays unhealthy until you initialize the repository and take the first snapshot.
 
 ## 5. Verify
@@ -175,13 +175,16 @@ That writes `instant.config.ts` with `apiURI` and `dashURI`.
 
 ## 8. Update
 
-In Portainer, open the stack and use **Pull and redeploy**. Instant publishes new `server` and `dashboard` images on `latest`. The `backup` service still builds from source. Do not treat a `pull access denied` error for that image as a registry login problem.
+In Portainer, open the stack and use **Pull and redeploy**. Instant publishes new `server` and `dashboard` images on `latest`. Re-pull those images so dashboard backups stay available. The `backup` service still builds from source. Do not treat a `pull access denied` error for that image as a registry login problem.
 
 ## 9. Backups
 
-Encrypted snapshots go to a dedicated Cloudflare R2 bucket every 6 hours UTC. Change `BACKUP_CRON` if you want a different interval.
+There are two layers:
 
-Each snapshot includes a PostgreSQL dump, the current MinIO uploads, and Instant server config. The backup container does not mount the live database or MinIO volumes.
+1. Per-app snapshots in the dashboard Backups page. Instant writes those into a dedicated MinIO bucket (`S3_APP_BACKUPS_BUCKET`, default `instant-app-backups`). You can create one with **+ Create backup**. Set `INSTANT_PLATFORM_TOKEN` and `APP_BACKUP_CRON` (default `0 2 * * *` UTC) to create one for every app on a schedule.
+2. Encrypted restic snapshots of the whole stack on Cloudflare R2 every 6 hours UTC. Change `BACKUP_CRON` if you want a different interval. After a scheduled dashboard run finishes, `app-backup.sh` immediately runs the restic job so those new zips go off-site.
+
+Each restic snapshot includes a PostgreSQL dump, the current MinIO upload bucket, the dashboard app-backups bucket, and Instant server config. The backup container does not mount the live database or MinIO volumes.
 
 Do this after the first deploy. Use placeholders here. Keep real keys and `RESTIC_PASSWORD` in a password manager.
 
@@ -245,6 +248,8 @@ Leave these empty in the persistent Portainer environment:
 - `BACKUP_STAGING_SOURCE`
 - `RESTIC_INIT_CONFIRM`
 - `RESTORE_TARGET_DB`, `RESTORE_TARGET_BUCKET`, `RESTORE_CONFIRM`
+- `INSTANT_PLATFORM_TOKEN` until you finish [9.9](#99-schedule-dashboard-backups)
+- `APP_BACKUP_APP_IDS` unless you want to limit scheduled dashboard backups to specific apps
 
 Redeploy so Portainer builds `backup/Dockerfile`. Leave **Re-pull image** off. The backup image is not on Docker Hub.
 
@@ -336,6 +341,27 @@ The helper should:
 An empty upload bucket can report `restored=0 destination=0`. That still matches.
 
 Do **not** run `restore.sh live` except during a real disaster recovery. That command replaces production data and needs `RESTORE_CONFIRM=I_UNDERSTAND_THIS_REPLACES_LIVE_DATA`. See [Backup and restore](docs/backup-and-restore.md).
+
+### 9.9 Schedule dashboard backups
+
+The Backups page works after you redeploy with `S3_APP_BACKUPS_BUCKET` and re-pull the Instant server image. **+ Create backup** writes a per-app snapshot into MinIO. Instant's built-in nightly scheduler is AWS-only, so this stack uses `app-backup.sh` instead.
+
+1. Sign in to the dashboard as `INSTANT_SUPERUSER_EMAIL`.
+2. Open the account menu and create a **personal access token**. You can also use the refresh token from `instant-cli login` pointed at this instance.
+3. Put that token in Portainer as `INSTANT_PLATFORM_TOKEN`.
+4. Leave `APP_BACKUP_CRON` at `0 2 * * *` (02:00 UTC daily) or set another UTC cron.
+5. Leave `APP_BACKUP_APP_IDS` empty to include every non-deleted app, or set a comma-separated list of app IDs.
+6. Redeploy the stack so the backup container sees the token.
+
+The next scheduled run creates one dashboard backup per app, waits for each job to finish, then runs `backup.sh` so R2 gets the new files immediately. A 429 rate-limit response skips that app and continues.
+
+Dashboard copies expire after 7 days. The restic copies on R2 follow `RESTIC_KEEP_WITHIN` / weekly / monthly. Restoring those dashboard zips from restic is a manual `mc mirror` back into `S3_APP_BACKUPS_BUCKET`. See [Backup and restore](docs/backup-and-restore.md).
+
+To run the same flow now:
+
+```sh
+sudo docker exec CONTAINER_NAME /usr/local/bin/app-backup.sh
+```
 
 ## 10. Migrate from Instant Cloud (optional)
 

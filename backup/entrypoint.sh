@@ -11,9 +11,15 @@ fi
 . "$LIB_SH"
 
 BACKUP_CRON="${BACKUP_CRON:-0 */6 * * *}"
+APP_BACKUP_CRON="${APP_BACKUP_CRON:-0 2 * * *}"
 
 write_crontab() {
-  printf '%s /usr/local/bin/backup.sh\n' "$BACKUP_CRON" > /etc/backup.crontab
+  {
+    printf '%s /usr/local/bin/backup.sh\n' "$BACKUP_CRON"
+    if [[ -n "${INSTANT_PLATFORM_TOKEN:-}" ]]; then
+      printf '%s /usr/local/bin/app-backup.sh\n' "$APP_BACKUP_CRON"
+    fi
+  } > /etc/backup.crontab
 }
 
 main() {
@@ -36,7 +42,11 @@ main() {
     fi
   fi
 
-  log "starting UTC schedule: ${BACKUP_CRON}"
+  if [[ -n "${INSTANT_PLATFORM_TOKEN:-}" ]]; then
+    log "starting UTC schedule: ${BACKUP_CRON} (restic), ${APP_BACKUP_CRON} (dashboard apps then restic)"
+  else
+    log "starting UTC schedule: ${BACKUP_CRON} (restic). Set INSTANT_PLATFORM_TOKEN to schedule dashboard backups."
+  fi
   exec supercronic -passthrough-logs /etc/backup.crontab
 }
 

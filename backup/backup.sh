@@ -33,6 +33,8 @@ mirror_uploads() {
   log "mirroring MinIO bucket ${S3_BUCKET} to staging"
   configure_mc_local
   mc mirror --overwrite --remove "local/${S3_BUCKET}" "$DATA_DIR/minio"
+  log "mirroring MinIO app-backups bucket ${S3_APP_BACKUPS_BUCKET} to staging"
+  mc mirror --overwrite --remove "local/${S3_APP_BACKUPS_BUCKET}" "$DATA_DIR/minio-app-backups"
 }
 
 dump_postgres() {

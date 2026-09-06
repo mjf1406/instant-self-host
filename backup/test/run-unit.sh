@@ -104,5 +104,23 @@ if (
 fi
 pass "restore.sh live refuses without confirmation"
 
+if (
+  RESTIC_PASSWORD=unit-pass \
+  R2_ACCESS_KEY_ID=unit-key \
+  R2_SECRET_ACCESS_KEY=unit-secret \
+  R2_ACCOUNT_ID=abc123 \
+  R2_BUCKET=instant-self-host-backups \
+  POSTGRES_PASSWORD=x \
+  MINIO_ROOT_USER=x \
+  MINIO_ROOT_PASSWORD=x \
+  bash "${ROOT}/backup/app-backup.sh"
+) 2>/dev/null; then
+  fail "app-backup.sh should refuse without INSTANT_PLATFORM_TOKEN"
+fi
+pass "app-backup.sh refuses without a platform token"
+
+[[ -d "${DATA_DIR}/minio-app-backups" ]] || fail "ensure_dirs should create minio-app-backups"
+pass "ensure_dirs creates the app-backups staging directory"
+
 rm -rf "$STATE_DIR"
 echo "unit checks passed"
