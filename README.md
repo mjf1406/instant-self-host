@@ -1,6 +1,15 @@
 # InstantDB on Portainer
 
-Self-host InstantDB on a home Ubuntu server. Portainer runs the stack. A Cloudflare Tunnel publishes it. No ports are opened on your LAN.
+## Summary
+
+This repo is a Portainer stack that runs InstantDB on a home Ubuntu server.
+
+- **Published with a Cloudflare Tunnel.** The dashboard, API, and file storage get public HTTPS hostnames. No ports are opened on your LAN.
+- **Google sign-in.** Dashboard login uses Google OAuth. `INSTANT_SUPERUSER_EMAIL` is the admin account. After the first login you can close sign-ups.
+- **One instance for many sites.** Create an Instant app per site. Clients and the Instant CLI point at your API and dashboard URLs.
+- **File uploads on the same stack.** MinIO serves `files.example.com`.
+- **Two backup layers.** The dashboard writes per-app snapshots into MinIO, on demand or on a schedule. Encrypted restic snapshots go offsite to a dedicated Cloudflare R2 bucket every 6 hours. Each snapshot includes Postgres, upload files, dashboard app backups, and server config.
+- **Recovery you can test.** A restore drill checks the latest snapshot without replacing live data. You can restore one app from R2, including on a clean host. A 7-day R2 object lock helps protect recent copies from accidental deletion.
 
 Replace `example.com` with your domain. This stack needs three hostnames:
 
