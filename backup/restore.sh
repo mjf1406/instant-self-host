@@ -64,20 +64,6 @@ extract_snapshot() {
   fi
 }
 
-restored_data_root() {
-  local dest="$1"
-
-  if [[ -d "${dest}${DATA_DIR}" ]]; then
-    printf '%s%s' "$dest" "$DATA_DIR"
-  elif [[ -d "${dest}/staging/data" ]]; then
-    printf '%s/staging/data' "$dest"
-  elif [[ -d "${dest}/data" ]]; then
-    printf '%s/data' "$dest"
-  else
-    die "restored snapshot does not contain the expected data directory"
-  fi
-}
-
 validate_restored_set() {
   local root="$1"
   local dump archive

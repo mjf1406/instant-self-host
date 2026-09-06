@@ -9,7 +9,7 @@ This stack copies InstantDB data to a dedicated Cloudflare R2 bucket. Each snaps
 
 restic encrypts the snapshot before it leaves the server. If you lose `RESTIC_PASSWORD`, the copies on R2 cannot be opened.
 
-The first-time Portainer workflow is in [README section 9](../README.md#9-backups). This page adds staging, command variants, checks from the verified rollout, credential rotation, and live recovery.
+The first-time Portainer workflow is in [README section 9](../README.md#9-backups). This page adds staging, command variants, checks from the verified rollout, credential rotation, and live recovery. To restore one app from R2 on a clean host, use [Restore one app from R2](restore-one-app.md).
 
 ## What you need
 
@@ -216,15 +216,17 @@ docker compose --profile restore run --rm restore list
 
 The dashboard Backups page stores per-app snapshots in MinIO bucket `S3_APP_BACKUPS_BUCKET` (default `instant-app-backups`). Instant's built-in nightly scheduler is AWS-only. This stack uses `app-backup.sh` instead.
 
-Set `INSTANT_PLATFORM_TOKEN` to a personal access token from the dashboard account menu, or to the refresh token from `instant-cli login` pointed at this instance. The token must belong to a user who can write every app you want scheduled. The superuser is enough.
+Set `INSTANT_PLATFORM_TOKEN` to the refresh token printed by `bunx instant-cli@latest login --print` when `INSTANT_CLI_API_URI` and `INSTANT_CLI_DASH_URI` point at this instance. A personal access token from **User Settings → Access Tokens** also works when that screen is available. The token must belong to a user who can write every app you want scheduled. The superuser is enough.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `APP_BACKUP_CRON` | `0 2 * * *` | UTC schedule. One dashboard backup per app, then an immediate restic upload. |
-| `APP_BACKUP_APP_IDS` | empty | Comma-separated app IDs. Empty means every non-deleted app. |
+| `APP_BACKUP_APP_IDS` | empty | Optional comma-separated override. Empty discovers personal and organization apps visible to the token and excludes internal apps. |
+| `APP_BACKUP_RATE_LIMIT_MAX_RETRIES` | `5` | Maximum retries when Instant returns HTTP 429. |
+| `APP_BACKUP_RATE_LIMIT_FALLBACK_SECONDS` | `300` | Delay when a 429 response has no valid `Retry-After` header. |
 | `INSTANT_SERVER_URL` | `http://server:8888` | Backend URL inside the Docker network. |
 
-A 429 rate-limit response skips that app and continues. Dashboard copies expire after 7 days. The restic copies on R2 follow your existing 7d / 5 weekly / 12 monthly retention.
+A 429 rate-limit response waits for `Retry-After` and retries. Dashboard copies expire after 7 days. The restic copies on R2 follow your existing 7d / 5 weekly / 12 monthly retention.
 
 Run the same flow now:
 
@@ -233,6 +235,8 @@ sudo docker exec CONTAINER_NAME /usr/local/bin/app-backup.sh
 ```
 
 `restore.sh live` puts Postgres, the upload bucket, and server config back. It does not replace the dashboard backups bucket. After you extract a restic snapshot, mirror `minio-app-backups` from that snapshot into `S3_APP_BACKUPS_BUCKET` with `mc`. The dashboard lists any copies that have not passed `expires_at`.
+
+To restore **one app** from R2 without replacing the whole stack, use [Restore one app from R2](restore-one-app.md). That path works on a clean machine. It does not need the original Instant containers or volumes.
 
 ## 9. Required restore drill
 
@@ -264,7 +268,7 @@ A verified empty-upload drill still succeeds. Object counts can be `restored=0 d
 
 To inspect targets before cleanup, omit `RESTORE_CLEANUP=yes` and drop them yourself after you have looked.
 
-Do **not** run `restore.sh live` except during a real disaster recovery.
+Do **not** run `restore.sh live` except during a real disaster recovery. For a single app, use [Restore one app from R2](restore-one-app.md) instead.
 
 ## 10. Live disaster recovery
 
@@ -356,4 +360,6 @@ This does not touch the live Instant volumes. It starts disposable PostgreSQL, M
 bash backup/test/run-isolated.sh
 ```
 
-Use that after you change backup scripts. The required production drill is still the command in section 9 against the real R2 bucket.
+Use that after you change backup scripts. The script now also seeds a zstd dashboard backup, exports one app through the recovery service with no Postgres or MinIO credentials, and checks that the Instant ZIP lands on a host bind mount. Docker is required. If this machine does not have Docker, run the script on the Ubuntu host.
+
+The required production drill is still the command in section 9 against the real R2 bucket.

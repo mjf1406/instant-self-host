@@ -1,3 +1,6 @@
 .env
 .vscode/
 README.private.md
+backup/recovery.env
+backup/exports/
+backup/test/exports/

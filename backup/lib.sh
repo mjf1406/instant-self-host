@@ -6,6 +6,7 @@ set -euo pipefail
 STATE_DIR="${STATE_DIR:-/staging/state}"
 DATA_DIR="${DATA_DIR:-/staging/data}"
 RESTORE_DIR="${RESTORE_DIR:-/staging/restore}"
+EXPORTS_DIR="${EXPORTS_DIR:-/staging/exports}"
 SERVER_CONFIG_DIR="${SERVER_CONFIG_DIR:-/app/resources/config}"
 lock_file() {
   printf '%s' "${LOCK_FILE:-${STATE_DIR}/backup.lock}"
@@ -72,6 +73,7 @@ ensure_dirs() {
     "$DATA_DIR/minio-app-backups" \
     "$DATA_DIR/server-config" \
     "$RESTORE_DIR" \
+    "$EXPORTS_DIR" \
     "$MC_CONFIG_DIR"
 }
 
@@ -152,6 +154,18 @@ validate_backup_env() {
   configure_restic_env
 }
 
+validate_recovery_env() {
+  require_env RESTIC_PASSWORD R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+
+  if [[ -z "${RESTIC_REPOSITORY:-}" && -z "${R2_ENDPOINT:-}" ]]; then
+    require_env R2_ACCOUNT_ID R2_BUCKET
+  elif [[ -z "${RESTIC_REPOSITORY:-}" ]]; then
+    require_env R2_BUCKET
+  fi
+
+  configure_restic_env
+}
+
 restic_cmd() {
   restic --retry-lock 10m -o s3.bucket-lookup=auto "$@"
 }
@@ -159,6 +173,20 @@ restic_cmd() {
 restic_repo_exists() {
   configure_restic_env
   restic_cmd cat config >/dev/null 2>&1
+}
+
+restored_data_root() {
+  local dest="$1"
+
+  if [[ -d "${dest}${DATA_DIR}" ]]; then
+    printf '%s%s' "$dest" "$DATA_DIR"
+  elif [[ -d "${dest}/staging/data" ]]; then
+    printf '%s/staging/data' "$dest"
+  elif [[ -d "${dest}/data" ]]; then
+    printf '%s/data' "$dest"
+  else
+    die "restored snapshot does not contain the expected data directory"
+  fi
 }
 
 configure_mc_local() {
@@ -245,6 +273,7 @@ write_runtime_env() {
     STATE_DIR
     DATA_DIR
     RESTORE_DIR
+    EXPORTS_DIR
     SERVER_CONFIG_DIR
     POSTGRES_HOST
     POSTGRES_USER
@@ -261,6 +290,8 @@ write_runtime_env() {
     APP_BACKUP_APP_IDS
     APP_BACKUP_JOB_TIMEOUT_SECONDS
     APP_BACKUP_POLL_SECONDS
+    APP_BACKUP_RATE_LIMIT_MAX_RETRIES
+    APP_BACKUP_RATE_LIMIT_FALLBACK_SECONDS
     R2_ACCOUNT_ID
     R2_BUCKET
     R2_ENDPOINT

@@ -347,15 +347,23 @@ Do **not** run `restore.sh live` except during a real disaster recovery. That co
 The Backups page works after you redeploy with `S3_APP_BACKUPS_BUCKET` and re-pull the Instant server image. **+ Create backup** writes a per-app snapshot into MinIO. Instant's built-in nightly scheduler is AWS-only, so this stack uses `app-backup.sh` instead.
 
 1. Sign in to the dashboard as `INSTANT_SUPERUSER_EMAIL`.
-2. Open the account menu and create a **personal access token**. You can also use the refresh token from `instant-cli login` pointed at this instance.
+2. Create a CLI refresh token for this instance and copy the printed secret:
+
+   ```sh
+   INSTANT_CLI_API_URI=https://api.example.com \
+   INSTANT_CLI_DASH_URI=https://dash.example.com \
+   bunx instant-cli@latest login --print
+   ```
+
+   A personal access token from **User Settings → Access Tokens** also works when that screen is available in your dashboard build.
 3. Put that token in Portainer as `INSTANT_PLATFORM_TOKEN`.
 4. Leave `APP_BACKUP_CRON` at `0 2 * * *` (02:00 UTC daily) or set another UTC cron.
-5. Leave `APP_BACKUP_APP_IDS` empty to include every non-deleted app, or set a comma-separated list of app IDs.
+5. Leave `APP_BACKUP_APP_IDS` empty to discover every personal and organization app visible to the token. Internal apps such as `System catalog` and `homepage` are excluded automatically. Set a comma-separated list only to override discovery.
 6. Redeploy the stack so the backup container sees the token.
 
-The next scheduled run creates one dashboard backup per app, waits for each job to finish, then runs `backup.sh` so R2 gets the new files immediately. A 429 rate-limit response skips that app and continues.
+The next scheduled run creates one dashboard backup per app, waits for each job to finish, then runs `backup.sh` so R2 gets the new files immediately. A 429 rate-limit response waits for `Retry-After` and retries instead of silently skipping the app.
 
-Dashboard copies expire after 7 days. The restic copies on R2 follow `RESTIC_KEEP_WITHIN` / weekly / monthly. Restoring those dashboard zips from restic is a manual `mc mirror` back into `S3_APP_BACKUPS_BUCKET`. See [Backup and restore](docs/backup-and-restore.md).
+Dashboard copies expire after 7 days. The restic copies on R2 follow `RESTIC_KEEP_WITHIN` / weekly / monthly. To restore one app from R2, including on a clean host that only has this repo and the restic credentials, see [Restore one app from R2](docs/restore-one-app.md).
 
 To run the same flow now:
 

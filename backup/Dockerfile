@@ -21,10 +21,14 @@ RUN apt-get update \
         bzip2 \
         ca-certificates \
         curl \
+        jq \
         postgresql-client-17 \
         procps \
         tar \
+        unzip \
         util-linux \
+        zip \
+        zstd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -e; \
@@ -48,13 +52,14 @@ RUN set -e; \
     rm -rf /var/lib/apt/lists/*
 
 COPY lib.sh /usr/local/lib/backup/lib.sh
-COPY entrypoint.sh backup.sh app-backup.sh maintenance.sh healthcheck.sh restore.sh init-repo.sh /usr/local/bin/
+COPY entrypoint.sh backup.sh app-backup.sh export-app-backup.sh maintenance.sh healthcheck.sh restore.sh init-repo.sh /usr/local/bin/
 
 RUN sed -i 's/\r$//' /usr/local/lib/backup/lib.sh /usr/local/bin/*.sh \
     && chmod 0755 \
         /usr/local/bin/entrypoint.sh \
         /usr/local/bin/backup.sh \
         /usr/local/bin/app-backup.sh \
+        /usr/local/bin/export-app-backup.sh \
         /usr/local/bin/maintenance.sh \
         /usr/local/bin/healthcheck.sh \
         /usr/local/bin/restore.sh \

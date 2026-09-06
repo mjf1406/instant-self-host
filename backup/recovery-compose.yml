@@ -1,0 +1,23 @@
+services:
+  recover:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: instant-self-host-backup:recovery
+    pull_policy: build
+    restart: "no"
+    environment:
+      TZ: UTC
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_BUCKET: ${R2_BUCKET:-instant-self-host-backups}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_REGION: ${R2_REGION:-auto}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_REPOSITORY_PREFIX: ${RESTIC_REPOSITORY_PREFIX:-}
+    volumes:
+      - ${RECOVERY_EXPORT_DIR:-./exports}:/staging/exports
+    entrypoint: ["/usr/local/bin/export-app-backup.sh"]
+    command: ["--help"]

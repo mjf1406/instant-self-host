@@ -8,6 +8,8 @@ SCRIPTS=(
   "${ROOT}/backup/lib.sh"
   "${ROOT}/backup/entrypoint.sh"
   "${ROOT}/backup/backup.sh"
+  "${ROOT}/backup/app-backup.sh"
+  "${ROOT}/backup/export-app-backup.sh"
   "${ROOT}/backup/maintenance.sh"
   "${ROOT}/backup/healthcheck.sh"
   "${ROOT}/backup/restore.sh"
@@ -31,6 +33,11 @@ if command -v docker >/dev/null 2>&1; then
   docker compose \
     --env-file "${ROOT}/.env.example" \
     -f "${ROOT}/docker-compose.yml" \
+    config \
+    >/dev/null
+  docker compose \
+    --env-file "${ROOT}/backup/recovery.env.example" \
+    -f "${ROOT}/backup/recovery-compose.yml" \
     config \
     >/dev/null
 else
